@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VoxForge – Free Text to Speech</title>
+  <meta name="description" content="Convert text to natural speech with English and Urdu voices, or clone and save your own voice. Self-hosted, no sign-up.">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body data-max="{{ max_chars }}">
+  <header class="top">
+    <div class="brand"><span class="logo">VF</span> VoxForge</div>
+    <button id="themeBtn" class="ghost" title="Toggle theme" aria-label="Toggle theme">☾</button>
+  </header>
+
+  <main class="layout">
+    <!-- LEFT: input -->
+    <section class="card">
+      <div class="modes" role="tablist">
+        <button class="mode active" data-mode="tts" type="button">Text to speech</button>
+        <button class="mode" data-mode="clone" type="button">Voice cloning</button>
+      </div>
+
+      <!-- clone panel -->
+      <div id="clonePanel" class="clone-panel" hidden>
+        <div id="cloneNote" class="hint"></div>
+        <div class="step"><b>1.</b> Give a voice sample</div>
+        <div class="ref-row">
+          <label class="file-btn ghost">Upload voice sample
+            <input type="file" id="refInput" accept="audio/*,video/*" hidden></label>
+          <button class="ghost" id="recBtn" type="button">● Record</button>
+          <span id="refName" class="hint">No sample yet</span>
+        </div>
+        <audio id="refAudio" controls hidden></audio>
+        <div class="hint">
+          10–60 seconds of clear speech from <b>one</b> person, no music or noise. The sample gives the
+          <b>voice</b> (tone and pitch). The <b>accent and speaking style</b> come from the base voice
+          (picked automatically from the sample's gender and your text's language).
+        </div>
+
+        <div class="step"><b>2.</b> Fine-tune (optional)</div>
+        <label class="slider-row">Similarity strength <output id="tauOut">0.50</output>
+          <input type="range" id="tau" min="0.1" max="1" step="0.05" value="0.5"></label>
+        <div class="hint">Try 0.3–0.8. Higher usually sounds more like the sample; lower sounds clearer.</div>
+        <label class="check"><input type="checkbox" id="matchPitch" checked> Match the sample's pitch (recommended)</label>
+
+        <label class="consent"><input type="checkbox" id="consent">
+          I own this voice or have the speaker's permission to clone it, and I won't use it to mislead or impersonate anyone.</label>
+
+        <div class="step"><b>3.</b> Save it to <i>My voices</i> (optional)</div>
+        <div class="save-row">
+          <input type="text" id="saveName" placeholder="Name, e.g. My voice" maxlength="60">
+          <button class="ghost" id="saveVoiceBtn" type="button">Save voice</button>
+        </div>
+        <div id="saveMsg" class="hint"></div>
+      </div>
+
+      <div class="toolbar">
+        <label class="switch"><input type="checkbox" id="dialogueToggle"> Two speakers</label>
+        <label class="file-btn ghost">Open .txt / .srt<input type="file" id="fileInput" accept=".txt,.srt" hidden></label>
+        <button class="ghost" id="clearBtn" type="button">Clear</button>
+      </div>
+
+      <textarea id="text" placeholder="Type or paste your text here… (no length limit)" spellcheck="false"></textarea>
+      <div class="meta"><span id="counter">0 characters</span></div>
+
+      <div id="dialogueHelp" class="hint" hidden>
+        Start each line with <b>A:</b> or <b>B:</b>, then pick a voice for each speaker on the right.
+      </div>
+
+      <div class="pauses">
+        <span>Insert pause:</span>
+        <button class="chip" data-pause="0.5" type="button">0.5s</button>
+        <button class="chip" data-pause="1" type="button">1s</button>
+        <button class="chip" data-pause="2" type="button">2s</button>
+        {% if not has_ffmpeg %}<small class="hint">(ffmpeg not found – pauses become short commas)</small>{% endif %}
+      </div>
+
+      <details class="effects" open>
+        <summary>Voice effects</summary>
+        <label>Speed <output id="rateOut">0%</output>
+          <input type="range" id="rate" min="-50" max="100" value="0"></label>
+        <label>Pitch <output id="pitchOut">0 Hz</output>
+          <input type="range" id="pitch" min="-50" max="50" value="0"></label>
+        <label>Volume <output id="volumeOut">0%</output>
+          <input type="range" id="volume" min="-50" max="50" value="0"></label>
+        <button class="ghost small" id="resetFx" type="button">Reset</button>
+      </details>
+
+      <button id="generateBtn" class="primary" type="button">Generate audio</button>
+      <div id="status" class="status" role="status"></div>
+    </section>
+
+    <!-- MIDDLE: voices -->
+    <section class="card">
+      <h2 id="voiceTitle">Voice selection</h2>
+
+      <!-- saved voices -->
+      <div class="mybox">
+        <div class="row-between"><h3>My voices</h3><span id="myHint" class="hint"></span></div>
+        <div id="myList" class="my-list"></div>
+
+        <div id="editor" class="editor" hidden>
+          <label class="ed-row">Name <input type="text" id="edName" maxlength="60"></label>
+          <label class="ed-row">Base voice <select id="edBase"></select></label>
+          <label class="ed-row">Strength <output id="edTauOut">0.50</output>
+            <input type="range" id="edTau" min="0.1" max="1" step="0.05"></label>
+          <label class="ed-row">Speed <output id="edRateOut">0%</output>
+            <input type="range" id="edRate" min="-50" max="100" step="1"></label>
+          <label class="ed-row">Pitch <output id="edPitchOut">0 Hz</output>
+            <input type="range" id="edPitch" min="-50" max="50" step="1"></label>
+          <label class="check"><input type="checkbox" id="edMatch"> Match the sample's pitch</label>
+          <div class="ed-actions">
+            <button class="ghost small" id="edSave" type="button">Save changes</button>
+            <label class="file-btn ghost small">Replace sample<input type="file" id="edSample" accept="audio/*,video/*" hidden></label>
+            <button class="ghost small danger" id="edDelete" type="button">Delete</button>
+            <button class="ghost small" id="edClose" type="button">Close</button>
+          </div>
+          <div id="edMsg" class="hint"></div>
+        </div>
+      </div>
+
+      <!-- clone mode: base voice is automatic unless you ask otherwise -->
+      <div id="autoBaseBox" class="autobase" hidden>
+        <label class="check"><input type="checkbox" id="autoBase" checked>
+          Pick the base voice automatically (recommended)</label>
+        <div class="hint">Uses a voice of the same gender as your sample, in the language of your text.</div>
+      </div>
+
+      <div id="stdVoices">
+        <h3 id="stdTitle">Voices</h3>
+        <div class="filters">
+          <input type="search" id="search" placeholder="Search voices…">
+          <select id="langFilter"><option value="">All languages</option></select>
+          <select id="genderFilter">
+            <option value="">Any gender</option>
+            <option>Female</option>
+            <option>Male</option>
+          </select>
+        </div>
+
+        <div id="speakerTabs" class="tabs" hidden>
+          <button class="tab active" data-speaker="A" type="button">Speaker A: <span id="voiceALabel">–</span></button>
+          <button class="tab" data-speaker="B" type="button">Speaker B: <span id="voiceBLabel">–</span></button>
+        </div>
+
+        <div id="voiceList" class="voice-list" aria-live="polite">Loading voices…</div>
+      </div>
+    </section>
+
+    <!-- RIGHT: results -->
+    <section class="card">
+      <div class="row-between">
+        <h2>Generated audio</h2>
+        <button class="ghost small" id="zipBtn" type="button" hidden>Download all (ZIP)</button>
+      </div>
+      <div id="results" class="results">
+        <p class="empty">Your generated audio will appear here.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    VoxForge · self-hosted text-to-speech · only convert text you have the right to use, and only clone voices you have permission to use.
+  </footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

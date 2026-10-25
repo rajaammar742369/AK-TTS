@@ -1,0 +1,4 @@
+flask>=3.0
+edge-tts>=7.3.1
+imageio-ffmpeg>=0.5.1
+gunicorn>=22.0; sys_platform != "win32"
